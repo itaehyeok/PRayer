@@ -62,11 +62,19 @@ fi
 # ─────────────────────────────────────────────── 2. 앱
 step "2/3  $NAME 받기"
 
-API="https://api.github.com/repos/$REPO/releases/latest"
-JSON="$(curl -fsSL "$API" 2>/dev/null)" || { bad "릴리스 정보를 받지 못했습니다."; exit 1; }
-LATEST="$(printf '%s' "$JSON" | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1)"
-URL="$(printf '%s' "$JSON" | sed -n 's/.*"browser_download_url": *"\([^"]*\.zip\)".*/\1/p' | head -1)"
-[ -n "$LATEST" ] && [ -n "$URL" ] || { bad "받을 파일을 찾지 못했습니다. 릴리스가 올라와 있나요?"; exit 1; }
+# 최신 버전은 API 가 아니라 github.com 의 "최신 릴리스" 이동 주소에서 읽는다. 로그인 없는 API 는
+# IP 하나에 시간당 60번이라, 회사처럼 여럿이 한 IP 를 쓰면 금방 막힌다(실측: 403 rate limit exceeded).
+LATEST_PAGE="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" 2>/dev/null)" \
+  || { bad "릴리스 정보를 받지 못했습니다."; exit 1; }
+# 릴리스가 하나도 없으면 태그 페이지가 아니라 릴리스 목록으로 간다.
+TAG="${LATEST_PAGE##*/releases/tag/}"
+case "$TAG" in
+  v[0-9]*) ;;
+  *) bad "받을 릴리스를 찾지 못했습니다. 릴리스가 올라와 있나요?"; exit 1 ;;
+esac
+LATEST="${TAG#v}"
+# 배포 스크립트(release.sh)가 PRayer-<버전>.zip 이름으로 올린다.
+URL="https://github.com/$REPO/releases/download/$TAG/$NAME-$LATEST.zip"
 
 CURRENT=""
 [ -d "$APP" ] && CURRENT="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null || true)"
